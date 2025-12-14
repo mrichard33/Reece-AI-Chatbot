@@ -1,11 +1,7 @@
 /**
- * GHL OAuth Service for Railway
+ * Reece AI Chatbot - OAuth Service
  * 
- * This service handles:
- * 1. OAuth authorization flow with GoHighLevel
- * 2. Token exchange (auth code → access token)
- * 3. Token refresh (automatic)
- * 4. Token storage and retrieval for n8n
+ * OAuth service for GoHighLevel Sub-Account integration.
  * 
  * Endpoints:
  * - GET  /                    - Health check & status
@@ -14,6 +10,7 @@
  * - GET  /api/token           - Get current access token (for n8n)
  * - POST /api/refresh         - Force token refresh
  * - GET  /api/locations       - List installed locations
+ * - POST /webhook/ghl         - Handle GHL webhook events
  */
 
 const express = require('express');
@@ -34,26 +31,222 @@ const config = {
   redirectUri: process.env.REDIRECT_URI || `https://${process.env.RAILWAY_PUBLIC_DOMAIN}/oauth/callback`,
   baseUrl: 'https://services.leadconnectorhq.com',
   marketplaceUrl: 'https://marketplace.gohighlevel.com',
-  apiKey: process.env.API_KEY || crypto.randomBytes(32).toString('hex'), // For securing endpoints
-  port: process.env.PORT || 3000
+  apiKey: process.env.API_KEY || crypto.randomBytes(32).toString('hex'),
+  port: process.env.PORT || 3000,
+  appName: 'Reece AI Chatbot'
 };
 
-// Required scopes for your n8n workflow
+// =============================================================================
+// SCOPES - Matching exactly what's enabled in the GHL App
+// =============================================================================
+
 const SCOPES = [
+  // Contacts
   'contacts.readonly',
   'contacts.write',
-  'conversations.readonly', 
+  
+  // Conversations
+  'conversations.readonly',
   'conversations.write',
   'conversations/message.write',
+  'conversations/message.readonly',
+  'conversations/reports.readonly',
+  'conversations/livechat.write',
+  
+  // Calendars
   'calendars.readonly',
   'calendars.write',
+  'calendars/events.readonly',
   'calendars/events.write',
+  'calendars/groups.readonly',
+  'calendars/groups.write',
+  'calendars/resources.readonly',
+  'calendars/resources.write',
+  
+  // Locations (NO locations.write - Sub-Account level)
   'locations.readonly',
   'locations/customFields.readonly',
   'locations/customFields.write',
+  'locations/customValues.readonly',
+  'locations/customValues.write',
   'locations/tags.readonly',
   'locations/tags.write',
-  'users.readonly'
+  'locations/templates.readonly',
+  'locations/tasks.readonly',
+  'locations/tasks.write',
+  
+  // Users
+  'users.readonly',
+  'users.write',
+  
+  // Opportunities
+  'opportunities.readonly',
+  'opportunities.write',
+  
+  // OAuth
+  'oauth.readonly',
+  'oauth.write',
+  
+  // Funnels
+  'funnels/funnel.readonly',
+  'funnels/page.readonly',
+  'funnels/redirect.readonly',
+  'funnels/redirect.write',
+  'funnels/pagecount.readonly',
+  
+  // Media
+  'medias.readonly',
+  'medias.write',
+  
+  // Recurring Tasks
+  'recurring-tasks.readonly',
+  'recurring-tasks.write',
+  
+  // Links
+  'links.readonly',
+  'links.write',
+  
+  // Email
+  'lc-email.readonly',
+  
+  // Invoices
+  'invoices.readonly',
+  'invoices.write',
+  'invoices/estimate.readonly',
+  'invoices/estimate.write',
+  'invoices/template.readonly',
+  'invoices/template.write',
+  'invoices/schedule.readonly',
+  'invoices/schedule.write',
+  
+  // Forms
+  'forms.readonly',
+  'forms.write',
+  
+  // Courses
+  'courses.readonly',
+  'courses.write',
+  
+  // Associations
+  'associations.readonly',
+  'associations.write',
+  'associations/relation.readonly',
+  'associations/relation.write',
+  
+  // Objects
+  'objects/record.readonly',
+  'objects/record.write',
+  'objects/schema.readonly',
+  'objects/schema.write',
+  
+  // Businesses
+  'businesses.readonly',
+  'businesses.write',
+  
+  // Campaigns
+  'campaigns.readonly',
+  
+  // Payments
+  'payments/orders.readonly',
+  'payments/orders.write',
+  'payments/orders.collectPayment',
+  'payments/integration.readonly',
+  'payments/integration.write',
+  'payments/transactions.readonly',
+  'payments/subscriptions.readonly',
+  'payments/coupons.readonly',
+  'payments/coupons.write',
+  'payments/custom-provider.readonly',
+  'payments/custom-provider.write',
+  
+  // Products
+  'products.readonly',
+  'products.write',
+  'products/prices.readonly',
+  'products/prices.write',
+  'products/collection.readonly',
+  'products/collection.write',
+  
+  // Social Planner
+  'socialplanner/oauth.readonly',
+  'socialplanner/oauth.write',
+  'socialplanner/post.readonly',
+  'socialplanner/post.write',
+  'socialplanner/account.readonly',
+  'socialplanner/account.write',
+  'socialplanner/csv.readonly',
+  'socialplanner/csv.write',
+  'socialplanner/category.readonly',
+  'socialplanner/category.write',
+  'socialplanner/tag.readonly',
+  'socialplanner/tag.write',
+  'socialplanner/statistics.readonly',
+  
+  // Store
+  'store/shipping.readonly',
+  'store/shipping.write',
+  'store/setting.readonly',
+  'store/setting.write',
+  
+  // Surveys
+  'surveys.readonly',
+  
+  // Workflows
+  'workflows.readonly',
+  
+  // Emails
+  'emails/builder.readonly',
+  'emails/builder.write',
+  'emails/schedule.readonly',
+  
+  // WordPress
+  'wordpress.site.readonly',
+  
+  // Blogs
+  'blogs/post.write',
+  'blogs/check-slug.readonly',
+  'blogs/post-update.write',
+  'blogs/category.readonly',
+  'blogs/author.readonly',
+  'blogs/posts.readonly',
+  'blogs/list.readonly',
+  
+  // Charges
+  'charges.readonly',
+  'charges.write',
+  
+  // Marketplace
+  'marketplace-installer-details.readonly',
+  
+  // Phone/Twilio
+  'twilioaccount.read',
+  'phonenumbers.read',
+  'numberpools.read',
+  
+  // Documents/Contracts
+  'documents_contracts/list.readonly',
+  'documents_contracts/sendLink.write',
+  'documents_contracts_template/sendLink.write',
+  'documents_contracts_template/list.readonly',
+  
+  // Voice AI
+  'voice-ai-dashboard.readonly',
+  'voice-ai-agents.readonly',
+  'voice-ai-agents.write',
+  'voice-ai-agent-goals.readonly',
+  'voice-ai-agent-goals.write',
+  
+  // Knowledge Bases
+  'knowledge-bases.readonly',
+  'knowledge-bases.write',
+  
+  // Conversation AI
+  'conversation-ai.readonly',
+  'conversation-ai.write',
+  
+  // Agent Studio
+  'agent-studio.readonly',
+  'agent-studio.write'
 ].join(' ');
 
 // =============================================================================
@@ -62,13 +255,11 @@ const SCOPES = [
 // =============================================================================
 
 const tokenStore = new Map();
-// Structure: locationId -> { accessToken, refreshToken, expiresAt, locationName, installedAt }
 
 // =============================================================================
 // MIDDLEWARE
 // =============================================================================
 
-// API Key authentication for sensitive endpoints
 const requireApiKey = (req, res, next) => {
   const providedKey = req.headers['x-api-key'] || req.query.apiKey;
   
@@ -81,9 +272,18 @@ const requireApiKey = (req, res, next) => {
   next();
 };
 
-// Request logging
 app.use((req, res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
+});
+
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, X-Api-Key');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
   next();
 });
 
@@ -91,39 +291,30 @@ app.use((req, res, next) => {
 // ROUTES
 // =============================================================================
 
-/**
- * Health Check & Status
- */
 app.get('/', (req, res) => {
   const configured = !!(config.clientId && config.clientSecret);
   const installedLocations = Array.from(tokenStore.keys());
+  const scopeCount = SCOPES.split(' ').length;
   
   res.json({
     status: 'running',
-    service: 'GHL OAuth Service',
-    version: '1.0.0',
+    service: config.appName,
+    version: '2.1.0',
     configured: configured,
     redirectUri: config.redirectUri,
+    scopeCount: scopeCount,
     installedLocations: installedLocations.length,
     endpoints: {
       authorize: '/authorize',
       callback: '/oauth/callback',
       getToken: '/api/token?locationId=XXX&apiKey=YOUR_API_KEY',
       refresh: '/api/refresh',
-      locations: '/api/locations?apiKey=YOUR_API_KEY'
-    },
-    setup: configured ? null : {
-      message: 'Missing configuration. Set these environment variables:',
-      required: ['GHL_CLIENT_ID', 'GHL_CLIENT_SECRET'],
-      optional: ['REDIRECT_URI', 'API_KEY']
+      locations: '/api/locations?apiKey=YOUR_API_KEY',
+      webhook: '/webhook/ghl'
     }
   });
 });
 
-/**
- * Start OAuth Authorization Flow
- * Redirects user to GHL to authorize the app
- */
 app.get('/authorize', (req, res) => {
   if (!config.clientId) {
     return res.status(500).json({ 
@@ -138,51 +329,52 @@ app.get('/authorize', (req, res) => {
   authUrl.searchParams.set('redirect_uri', config.redirectUri);
   authUrl.searchParams.set('scope', SCOPES);
 
-  console.log(`[OAuth] Redirecting to GHL authorization: ${authUrl.toString()}`);
+  console.log(`[OAuth] Redirecting to GHL authorization`);
+  console.log(`[OAuth] Scopes requested: ${SCOPES.split(' ').length} scopes`);
   res.redirect(authUrl.toString());
 });
 
-/**
- * OAuth Callback Handler
- * GHL redirects here after user authorizes
- */
 app.get('/oauth/callback', async (req, res) => {
   const { code, error, error_description } = req.query;
 
-  // Handle authorization errors
   if (error) {
     console.error(`[OAuth] Authorization error: ${error} - ${error_description}`);
     return res.status(400).send(`
+      <!DOCTYPE html>
       <html>
-        <head><title>Authorization Failed</title></head>
-        <body style="font-family: Arial, sans-serif; padding: 40px; text-align: center;">
-          <h1 style="color: #e74c3c;">❌ Authorization Failed</h1>
-          <p><strong>Error:</strong> ${error}</p>
-          <p><strong>Description:</strong> ${error_description || 'No description provided'}</p>
-          <p><a href="/authorize">Try again</a></p>
+        <head>
+          <title>Authorization Failed - ${config.appName}</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); min-height: 100vh; }
+            .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 16px; padding: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+            h1 { color: #dc2626; margin-bottom: 20px; }
+            .error-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 20px 0; }
+            a { color: #3b82f6; }
+            .btn { display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; margin-top: 20px; text-decoration: none; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>❌ Authorization Failed</h1>
+            <div class="error-box">
+              <p><strong>Error:</strong> ${error}</p>
+              <p><strong>Description:</strong> ${error_description || 'No description provided'}</p>
+            </div>
+            <a href="/authorize" class="btn">Try Again</a>
+          </div>
         </body>
       </html>
     `);
   }
 
-  // Validate authorization code
   if (!code) {
-    return res.status(400).send(`
-      <html>
-        <head><title>Missing Code</title></head>
-        <body style="font-family: Arial, sans-serif; padding: 40px; text-align: center;">
-          <h1 style="color: #e74c3c;">❌ Missing Authorization Code</h1>
-          <p>No authorization code was provided by GHL.</p>
-          <p><a href="/authorize">Try again</a></p>
-        </body>
-      </html>
-    `);
+    return res.status(400).send('Missing authorization code');
   }
 
   try {
     console.log(`[OAuth] Exchanging authorization code for tokens...`);
 
-    // Exchange code for tokens
     const tokenResponse = await axios.post(
       `${config.baseUrl}/oauth/token`,
       new URLSearchParams({
@@ -201,14 +393,11 @@ app.get('/oauth/callback', async (req, res) => {
     );
 
     const tokens = tokenResponse.data;
-    console.log(`[OAuth] Token exchange successful!`);
+    console.log(`[OAuth] ✅ Token exchange successful!`);
     console.log(`[OAuth] Location ID: ${tokens.locationId}`);
-    console.log(`[OAuth] User Type: ${tokens.userType}`);
 
-    // Calculate expiration time
     const expiresAt = new Date(Date.now() + (tokens.expires_in * 1000));
 
-    // Store tokens
     tokenStore.set(tokens.locationId, {
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token,
@@ -222,56 +411,81 @@ app.get('/oauth/callback', async (req, res) => {
       installedAt: new Date().toISOString()
     });
 
-    console.log(`[OAuth] Tokens stored for location: ${tokens.locationId}`);
-
-    // Success page
     res.send(`
+      <!DOCTYPE html>
       <html>
         <head>
-          <title>Authorization Successful</title>
+          <title>Connected! - ${config.appName}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
-            .success { color: #27ae60; }
-            .box { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
-            code { background: #e0e0e0; padding: 2px 6px; border-radius: 4px; }
-            .warning { background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 8px; margin: 20px 0; }
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); min-height: 100vh; }
+            .container { max-width: 700px; margin: 0 auto; background: white; border-radius: 16px; padding: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+            h1 { color: #059669; margin-bottom: 8px; font-size: 28px; }
+            .subtitle { color: #6b7280; margin-bottom: 30px; }
+            .info-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 20px 0; }
+            .info-card h3 { color: #1e3a8a; margin-bottom: 12px; font-size: 14px; text-transform: uppercase; }
+            .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e2e8f0; }
+            .info-row:last-child { border-bottom: none; }
+            .info-label { color: #64748b; font-size: 14px; }
+            .info-value { font-family: monospace; background: #e2e8f0; padding: 2px 8px; border-radius: 4px; font-size: 13px; }
+            .warning { background: #fef3c7; border: 1px solid #f59e0b; border-radius: 12px; padding: 16px 20px; margin: 20px 0; }
+            .warning-title { font-weight: 600; color: #92400e; margin-bottom: 4px; }
+            .token-box { background: #1e293b; border-radius: 8px; padding: 12px 16px; margin-top: 8px; overflow-x: auto; }
+            .token-box code { color: #4ade80; font-family: monospace; font-size: 11px; word-break: break-all; }
+            .steps { background: #f0fdf4; border: 1px solid #86efac; border-radius: 12px; padding: 20px; margin: 20px 0; }
+            .steps h3 { color: #166534; margin-bottom: 12px; }
+            .steps ol { padding-left: 20px; color: #15803d; }
+            .steps li { margin: 8px 0; }
+            .steps code { background: #dcfce7; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+            .btn { display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500; margin-top: 8px; }
+            .btn:hover { background: #2563eb; }
           </style>
         </head>
         <body>
-          <h1 class="success">✅ Authorization Successful!</h1>
-          
-          <div class="box">
-            <h3>Installation Details</h3>
-            <p><strong>Location ID:</strong> <code>${tokens.locationId}</code></p>
-            <p><strong>Company ID:</strong> <code>${tokens.companyId || 'N/A'}</code></p>
-            <p><strong>User Type:</strong> <code>${tokens.userType}</code></p>
-            <p><strong>Token Expires:</strong> ${expiresAt.toLocaleString()}</p>
-          </div>
+          <div class="container">
+            <h1>✅ Successfully Connected!</h1>
+            <p class="subtitle">${config.appName} is now connected to your GoHighLevel account</p>
+            
+            <div class="info-card">
+              <h3>Installation Details</h3>
+              <div class="info-row">
+                <span class="info-label">Location ID</span>
+                <span class="info-value">${tokens.locationId}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Company ID</span>
+                <span class="info-value">${tokens.companyId || 'N/A'}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">User Type</span>
+                <span class="info-value">${tokens.userType}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Token Expires</span>
+                <span class="info-value">${expiresAt.toLocaleString()}</span>
+              </div>
+            </div>
 
-          <div class="warning">
-            <strong>⚠️ Important:</strong> Save your API Key for accessing tokens:
-            <br><br>
-            <code style="word-break: break-all;">${config.apiKey}</code>
-          </div>
+            <div class="warning">
+              <div class="warning-title">⚠️ Save Your API Key</div>
+              <div class="token-box">
+                <code>${config.apiKey}</code>
+              </div>
+            </div>
 
-          <div class="box">
-            <h3>Next Steps for n8n</h3>
-            <p>Update your n8n HTTP Header Auth credential with:</p>
-            <ol>
-              <li>Go to n8n → Credentials</li>
-              <li>Find your GHL credential (HTTP Header Auth)</li>
-              <li>Set the header name to: <code>Authorization</code></li>
-              <li>Set the header value to: <code>Bearer ${tokens.access_token.substring(0, 20)}...</code></li>
-            </ol>
-            <p>Or use this endpoint to get fresh tokens:</p>
-            <code>GET /api/token?locationId=${tokens.locationId}&apiKey=YOUR_API_KEY</code>
-          </div>
+            <div class="steps">
+              <h3>🔧 Next Steps for n8n</h3>
+              <ol>
+                <li>Go to <strong>n8n → Credentials</strong></li>
+                <li>Create/update <strong>HTTP Header Auth</strong> credential</li>
+                <li>Header name: <code>Authorization</code></li>
+                <li>Header value: <code>Bearer ${tokens.access_token.substring(0, 30)}...</code></li>
+              </ol>
+            </div>
 
-          <div class="box">
-            <h3>Test Your Token</h3>
-            <p><a href="/api/token?locationId=${tokens.locationId}&apiKey=${config.apiKey}" target="_blank">
-              Click here to view your token details
-            </a></p>
+            <a href="/api/token?locationId=${tokens.locationId}&apiKey=${config.apiKey}" class="btn" target="_blank">
+              View Token Details →
+            </a>
           </div>
         </body>
       </html>
@@ -279,62 +493,71 @@ app.get('/oauth/callback', async (req, res) => {
 
   } catch (err) {
     console.error('[OAuth] Token exchange failed:', err.response?.data || err.message);
+    const errorData = err.response?.data || {};
     
     res.status(500).send(`
+      <!DOCTYPE html>
       <html>
-        <head><title>Token Exchange Failed</title></head>
-        <body style="font-family: Arial, sans-serif; padding: 40px; text-align: center;">
-          <h1 style="color: #e74c3c;">❌ Token Exchange Failed</h1>
-          <p><strong>Error:</strong> ${err.response?.data?.error || err.message}</p>
-          <p><strong>Description:</strong> ${err.response?.data?.error_description || 'Unknown error'}</p>
-          <pre style="text-align: left; background: #f5f5f5; padding: 20px; overflow: auto;">
-${JSON.stringify(err.response?.data || {}, null, 2)}
-          </pre>
-          <p><a href="/authorize">Try again</a></p>
+        <head>
+          <title>Token Exchange Failed - ${config.appName}</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%); min-height: 100vh; }
+            .container { max-width: 600px; margin: 0 auto; background: white; border-radius: 16px; padding: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+            h1 { color: #dc2626; margin-bottom: 20px; }
+            .error-box { background: #fef2f2; border: 1px solid #fecaca; border-radius: 8px; padding: 16px; margin: 20px 0; }
+            pre { background: #1e293b; color: #f1f5f9; padding: 16px; border-radius: 8px; overflow: auto; font-size: 12px; }
+            .btn { display: inline-block; background: #3b82f6; color: white; padding: 12px 24px; border-radius: 8px; margin-top: 20px; text-decoration: none; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <h1>❌ Token Exchange Failed</h1>
+            <div class="error-box">
+              <p><strong>Error:</strong> ${errorData.error || err.message}</p>
+              <p><strong>Description:</strong> ${errorData.error_description || 'Unknown error'}</p>
+            </div>
+            <pre>${JSON.stringify(errorData, null, 2)}</pre>
+            <a href="/authorize" class="btn">Try Again</a>
+          </div>
         </body>
       </html>
     `);
   }
 });
 
-/**
- * Get Access Token
- * n8n calls this endpoint to get the current valid token
- */
 app.get('/api/token', requireApiKey, async (req, res) => {
-  const { locationId } = req.query;
+  let { locationId } = req.query;
 
   if (!locationId) {
-    // If no locationId specified, return first available or list all
     const locations = Array.from(tokenStore.keys());
     if (locations.length === 0) {
       return res.status(404).json({
         error: 'No tokens',
-        message: 'No locations have been authorized yet. Visit /authorize to connect a location.'
+        message: 'No locations have been authorized yet. Visit /authorize to connect.'
       });
     }
     if (locations.length === 1) {
-      req.query.locationId = locations[0];
+      locationId = locations[0];
     } else {
       return res.status(400).json({
         error: 'Multiple locations',
-        message: 'Multiple locations are connected. Please specify locationId.',
+        message: 'Multiple locations connected. Please specify locationId.',
         availableLocations: locations
       });
     }
   }
 
-  const tokenData = tokenStore.get(req.query.locationId);
+  const tokenData = tokenStore.get(locationId);
   
   if (!tokenData) {
     return res.status(404).json({
       error: 'Not found',
-      message: `No tokens found for location ${req.query.locationId}`,
+      message: `No tokens found for location ${locationId}`,
       availableLocations: Array.from(tokenStore.keys())
     });
   }
 
-  // Check if token is expired or expiring soon (within 5 minutes)
   const expiresAt = new Date(tokenData.expiresAt);
   const now = new Date();
   const fiveMinutes = 5 * 60 * 1000;
@@ -343,38 +566,34 @@ app.get('/api/token', requireApiKey, async (req, res) => {
     console.log(`[Token] Token expiring soon, refreshing...`);
     
     try {
-      const newTokens = await refreshToken(tokenData.refreshToken, req.query.locationId);
+      const newTokens = await refreshToken(tokenData.refreshToken, locationId);
       return res.json({
         accessToken: newTokens.accessToken,
         expiresAt: newTokens.expiresAt,
-        locationId: req.query.locationId,
+        locationId: locationId,
         refreshed: true
       });
     } catch (err) {
       console.error('[Token] Refresh failed:', err.message);
-      // Return existing token even if refresh failed
     }
   }
 
   res.json({
     accessToken: tokenData.accessToken,
     expiresAt: tokenData.expiresAt,
-    locationId: req.query.locationId,
+    locationId: locationId,
     refreshed: false,
     installedAt: tokenData.installedAt
   });
 });
 
-/**
- * Force Token Refresh
- */
 app.post('/api/refresh', requireApiKey, async (req, res) => {
   const { locationId } = req.body || req.query;
 
   if (!locationId) {
     return res.status(400).json({
       error: 'Missing locationId',
-      message: 'Please provide locationId in request body or query'
+      message: 'Please provide locationId'
     });
   }
 
@@ -403,9 +622,6 @@ app.post('/api/refresh', requireApiKey, async (req, res) => {
   }
 });
 
-/**
- * List Installed Locations
- */
 app.get('/api/locations', requireApiKey, (req, res) => {
   const locations = [];
   
@@ -420,24 +636,18 @@ app.get('/api/locations', requireApiKey, (req, res) => {
     });
   }
 
-  res.json({
-    count: locations.length,
-    locations: locations
-  });
+  res.json({ count: locations.length, locations: locations });
 });
 
-/**
- * Webhook endpoint for GHL app events (optional)
- */
 app.post('/webhook/ghl', (req, res) => {
-  console.log('[Webhook] Received GHL webhook:', req.body);
+  console.log('[Webhook] Received:', JSON.stringify(req.body, null, 2));
   
-  // Handle uninstall events
-  if (req.body.type === 'UNINSTALL') {
-    const locationId = req.body.locationId;
+  const { type, locationId } = req.body;
+  
+  if (type === 'UNINSTALL' || type === 'uninstall') {
     if (locationId && tokenStore.has(locationId)) {
       tokenStore.delete(locationId);
-      console.log(`[Webhook] Removed tokens for uninstalled location: ${locationId}`);
+      console.log(`[Webhook] Removed tokens for: ${locationId}`);
     }
   }
 
@@ -448,10 +658,7 @@ app.post('/webhook/ghl', (req, res) => {
 // HELPER FUNCTIONS
 // =============================================================================
 
-/**
- * Refresh an access token
- */
-async function refreshToken(refreshToken, locationId) {
+async function refreshToken(refreshTokenValue, locationId) {
   console.log(`[Refresh] Refreshing token for location: ${locationId}`);
 
   const response = await axios.post(
@@ -460,7 +667,7 @@ async function refreshToken(refreshToken, locationId) {
       grant_type: 'refresh_token',
       client_id: config.clientId,
       client_secret: config.clientSecret,
-      refresh_token: refreshToken
+      refresh_token: refreshTokenValue
     }).toString(),
     {
       headers: {
@@ -473,7 +680,6 @@ async function refreshToken(refreshToken, locationId) {
   const tokens = response.data;
   const expiresAt = new Date(Date.now() + (tokens.expires_in * 1000));
 
-  // Update stored tokens
   const existingData = tokenStore.get(locationId) || {};
   tokenStore.set(locationId, {
     ...existingData,
@@ -484,7 +690,7 @@ async function refreshToken(refreshToken, locationId) {
     lastRefreshed: new Date().toISOString()
   });
 
-  console.log(`[Refresh] Token refreshed successfully, expires: ${expiresAt.toISOString()}`);
+  console.log(`[Refresh] ✅ Token refreshed, expires: ${expiresAt.toISOString()}`);
 
   return {
     accessToken: tokens.access_token,
@@ -497,25 +703,33 @@ async function refreshToken(refreshToken, locationId) {
 // =============================================================================
 
 app.listen(config.port, () => {
-  console.log('╔════════════════════════════════════════════════════════════╗');
-  console.log('║           GHL OAuth Service Started                        ║');
-  console.log('╠════════════════════════════════════════════════════════════╣');
-  console.log(`║  Port: ${config.port}                                              ║`);
-  console.log(`║  Redirect URI: ${config.redirectUri?.substring(0, 43) || 'Not set'}  ║`);
-  console.log(`║  Client ID: ${config.clientId ? 'Configured ✓' : 'NOT SET ✗'}                           ║`);
-  console.log(`║  Client Secret: ${config.clientSecret ? 'Configured ✓' : 'NOT SET ✗'}                       ║`);
-  console.log('╠════════════════════════════════════════════════════════════╣');
-  console.log('║  Endpoints:                                                ║');
-  console.log('║    GET  /              - Status & health check             ║');
-  console.log('║    GET  /authorize     - Start OAuth flow                  ║');
-  console.log('║    GET  /oauth/callback - OAuth callback handler           ║');
-  console.log('║    GET  /api/token     - Get access token (for n8n)        ║');
-  console.log('║    POST /api/refresh   - Force token refresh               ║');
-  console.log('║    GET  /api/locations - List connected locations          ║');
-  console.log('╚════════════════════════════════════════════════════════════╝');
+  const scopeCount = SCOPES.split(' ').length;
+  
+  console.log('');
+  console.log('╔════════════════════════════════════════════════════════════════╗');
+  console.log('║                                                                ║');
+  console.log('║       🤖  REECE AI CHATBOT - OAuth Service                     ║');
+  console.log('║          Version 2.1.0 (Sub-Account Compatible)                ║');
+  console.log('║                                                                ║');
+  console.log('╠════════════════════════════════════════════════════════════════╣');
+  console.log(`║  Port:          ${String(config.port).padEnd(45)}║`);
+  console.log(`║  Redirect URI:  ${(config.redirectUri || 'Not set').substring(0, 45).padEnd(45)}║`);
+  console.log(`║  Client ID:     ${config.clientId ? '✅ Configured'.padEnd(45) : '❌ NOT SET'.padEnd(45)}║`);
+  console.log(`║  Client Secret: ${config.clientSecret ? '✅ Configured'.padEnd(45) : '❌ NOT SET'.padEnd(45)}║`);
+  console.log(`║  Scopes:        ${String(scopeCount + ' permissions').padEnd(45)}║`);
+  console.log('╠════════════════════════════════════════════════════════════════╣');
+  console.log('║  Endpoints:                                                    ║');
+  console.log('║    GET  /              → Status                                ║');
+  console.log('║    GET  /authorize     → Start OAuth                           ║');
+  console.log('║    GET  /oauth/callback→ OAuth callback                        ║');
+  console.log('║    GET  /api/token     → Get access token                      ║');
+  console.log('║    POST /api/refresh   → Refresh token                         ║');
+  console.log('║    GET  /api/locations → List locations                        ║');
+  console.log('╚════════════════════════════════════════════════════════════════╝');
+  console.log('');
   
   if (!config.clientId || !config.clientSecret) {
-    console.log('\n⚠️  WARNING: Missing GHL credentials!');
-    console.log('   Set GHL_CLIENT_ID and GHL_CLIENT_SECRET environment variables.');
+    console.log('⚠️  WARNING: Missing GHL credentials!');
+    console.log('');
   }
 });
