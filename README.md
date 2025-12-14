@@ -39,12 +39,3 @@ Reece is a conversational AI chatbot designed for home improvement companies (sp
 ---
 
 Built for 24/7 automated lead engagement and appointment setting.
-```
-
----
-
-## My Recommendation
-
-For the **GitHub description field**, use:
-```
-AI-powered NEPQ sales chatbot with GoHighLevel OAuth integration, multi-language support, automated scheduling, and n8n workflow orchestration for 24/7 lead qualification.
