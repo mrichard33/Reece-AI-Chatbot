@@ -33,8 +33,39 @@ const config = {
   marketplaceUrl: 'https://marketplace.gohighlevel.com',
   apiKey: process.env.API_KEY || crypto.randomBytes(32).toString('hex'),
   port: process.env.PORT || 3000,
-  appName: 'Reece AI Chatbot'
+  appName: 'Reece AI Chatbot',
+  // 2026-10-03 (security review): optional comma-separated allowlist. When set,
+  // an install from any other GHL location is refused and its tokens are not
+  // stored, so a stranger who installs the app gets nothing from this service.
+  allowedLocationIds: (process.env.ALLOWED_LOCATION_IDS || '')
+    .split(',').map(s => s.trim()).filter(Boolean)
 };
+
+// =============================================================================
+// SECURITY HELPERS (2026-10-03 security review)
+// =============================================================================
+
+// Every value written into an HTML page goes through this. The error pages
+// used to echo `error` / `error_description` from the query string as raw HTML
+// (reflected XSS on this service's domain).
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+// Constant-time compare: `!==` stops at the first wrong character, which leaks
+// through timing how much of a guessed key was right.
+function keyMatches(provided) {
+  if (typeof provided !== 'string' || !provided) return false;
+  const a = crypto.createHash('sha256').update(provided).digest();
+  const b = crypto.createHash('sha256').update(config.apiKey).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+function locationAllowed(locationId) {
+  return config.allowedLocationIds.length === 0 || config.allowedLocationIds.includes(String(locationId));
+}
 
 // =============================================================================
 // SCOPES - Matching exactly what's enabled in the GHL App
@@ -263,7 +294,7 @@ const tokenStore = new Map();
 const requireApiKey = (req, res, next) => {
   const providedKey = req.headers['x-api-key'] || req.query.apiKey;
   
-  if (!providedKey || providedKey !== config.apiKey) {
+  if (!keyMatches(providedKey)) {
     return res.status(401).json({ 
       error: 'Unauthorized', 
       message: 'Valid API key required' 
@@ -358,8 +389,8 @@ app.get('/oauth/callback', async (req, res) => {
           <div class="container">
             <h1>❌ Authorization Failed</h1>
             <div class="error-box">
-              <p><strong>Error:</strong> ${error}</p>
-              <p><strong>Description:</strong> ${error_description || 'No description provided'}</p>
+              <p><strong>Error:</strong> ${escapeHtml(error)}</p>
+              <p><strong>Description:</strong> ${escapeHtml(error_description || 'No description provided')}</p>
             </div>
             <a href="/authorize" class="btn">Try Again</a>
           </div>
@@ -395,6 +426,11 @@ app.get('/oauth/callback', async (req, res) => {
     const tokens = tokenResponse.data;
     console.log(`[OAuth] ✅ Token exchange successful!`);
     console.log(`[OAuth] Location ID: ${tokens.locationId}`);
+
+    if (!locationAllowed(tokens.locationId)) {
+      console.warn(`[OAuth] Refused install from location not in ALLOWED_LOCATION_IDS: ${tokens.locationId}`);
+      return res.status(403).send('This app is private to Reece Windows & Doors.');
+    }
 
     const expiresAt = new Date(Date.now() + (tokens.expires_in * 1000));
 
@@ -450,15 +486,15 @@ app.get('/oauth/callback', async (req, res) => {
               <h3>Installation Details</h3>
               <div class="info-row">
                 <span class="info-label">Location ID</span>
-                <span class="info-value">${tokens.locationId}</span>
+                <span class="info-value">${escapeHtml(tokens.locationId)}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Company ID</span>
-                <span class="info-value">${tokens.companyId || 'N/A'}</span>
+                <span class="info-value">${escapeHtml(tokens.companyId || 'N/A')}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">User Type</span>
-                <span class="info-value">${tokens.userType}</span>
+                <span class="info-value">${escapeHtml(tokens.userType)}</span>
               </div>
               <div class="info-row">
                 <span class="info-label">Token Expires</span>
@@ -466,12 +502,10 @@ app.get('/oauth/callback', async (req, res) => {
               </div>
             </div>
 
-            <div class="warning">
-              <div class="warning-title">⚠️ Save Your API Key</div>
-              <div class="token-box">
-                <code>${config.apiKey}</code>
-              </div>
-            </div>
+            <!-- 2026-10-03 (security review): the master API key used to be
+                 printed here. Anyone who installed the app into ANY location
+                 saw it, and it unlocks /api/token for Reece's location. The key
+                 now lives only in the API_KEY environment variable. -->
 
             <div class="steps">
               <h3>🔧 Next Steps for n8n</h3>
@@ -479,13 +513,10 @@ app.get('/oauth/callback', async (req, res) => {
                 <li>Go to <strong>n8n → Credentials</strong></li>
                 <li>Create/update <strong>HTTP Header Auth</strong> credential</li>
                 <li>Header name: <code>Authorization</code></li>
-                <li>Header value: <code>Bearer ${tokens.access_token.substring(0, 30)}...</code></li>
+                <li>Header value: fetch it from <code>/api/token</code> with the <code>X-Api-Key</code> header</li>
               </ol>
             </div>
 
-            <a href="/api/token?locationId=${tokens.locationId}&apiKey=${config.apiKey}" class="btn" target="_blank">
-              View Token Details →
-            </a>
           </div>
         </body>
       </html>
@@ -514,10 +545,10 @@ app.get('/oauth/callback', async (req, res) => {
           <div class="container">
             <h1>❌ Token Exchange Failed</h1>
             <div class="error-box">
-              <p><strong>Error:</strong> ${errorData.error || err.message}</p>
-              <p><strong>Description:</strong> ${errorData.error_description || 'Unknown error'}</p>
+              <p><strong>Error:</strong> ${escapeHtml(errorData.error || err.message)}</p>
+              <p><strong>Description:</strong> ${escapeHtml(errorData.error_description || 'Unknown error')}</p>
             </div>
-            <pre>${JSON.stringify(errorData, null, 2)}</pre>
+            <pre>${escapeHtml(JSON.stringify(errorData, null, 2))}</pre>
             <a href="/authorize" class="btn">Try Again</a>
           </div>
         </body>
@@ -640,7 +671,8 @@ app.get('/api/locations', requireApiKey, (req, res) => {
 });
 
 app.post('/webhook/ghl', (req, res) => {
-  console.log('[Webhook] Received:', JSON.stringify(req.body, null, 2));
+  // Log the event type only, not the full body (it can carry contact data).
+  console.log(`[Webhook] Received: ${String(req.body?.type || 'unknown').slice(0, 40)}`);
   
   const { type, locationId } = req.body;
   
@@ -730,6 +762,12 @@ app.listen(config.port, () => {
   
   if (!config.clientId || !config.clientSecret) {
     console.log('⚠️  WARNING: Missing GHL credentials!');
+    console.log('');
+  }
+  if (!process.env.API_KEY) {
+    // The success page no longer shows the key, so a random per-boot key would
+    // be unusable. Set API_KEY in Railway.
+    console.log('⚠️  WARNING: API_KEY is not set — /api/* will reject every call until it is.');
     console.log('');
   }
 });

@@ -77,7 +77,12 @@ In Railway, go to your service → **Variables** tab and add:
 GHL_CLIENT_ID=your_client_id_from_ghl
 GHL_CLIENT_SECRET=your_client_secret_from_ghl
 API_KEY=your_secure_random_key
+ALLOWED_LOCATION_IDS=your_ghl_location_id   # optional, recommended
 ```
+
+`API_KEY` is required: the success page no longer shows it (it used to show it to
+anyone who installed the app). `ALLOWED_LOCATION_IDS` (comma-separated) refuses
+installs from any other GHL location. Send the key in the `X-Api-Key` header.
 
 #### 5️⃣ Get Your Public URL
 
